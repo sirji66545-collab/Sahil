@@ -2,10 +2,10 @@
   "name": "osint-admin-panel",
   "version": "1.0.0",
   "description": "Educational admin panel / proxy for API key management, rate limiting, logging and mock overrides.",
-  "main": "server.js",
+  "main": "server.cjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node server.cjs",
+    "dev": "node --watch server.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
