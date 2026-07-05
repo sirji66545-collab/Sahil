@@ -1,10 +1,11 @@
-// server.js — main Express app: admin UI, API proxy, rate limiting, logging, overrides
+// server.cjs — main Express app: admin UI, API proxy, rate limiting, logging, overrides
 require("dotenv").config();
 const express = require("express");
 const session = require("express-session");
 const cookieParser = require("cookie-parser");
 const crypto = require("crypto");
 const path = require("path");
+const fs = require("fs");  // ← NEW: For auto-creating views folder
 const db = require("./db");
 
 const app = express();
@@ -15,8 +16,164 @@ const UPSTREAM_KEY = process.env.UPSTREAM_KEY;
 // The 8 original endpoints the /all route fans out to
 const ALL_ENDPOINTS = ["num", "ifsc", "insta", "adhar", "pak", "veh", "tg", "familyinfo"];
 
+// ── Views setup with auto-creation ──────────────────
+const viewsPath = path.join(__dirname, "views");
+app.set("views", viewsPath);
 app.set("view engine", "ejs");
-app.set("views", path.join(__dirname, "views"));
+console.log("📁 Views directory:", viewsPath);
+
+// Auto-create views folder if missing
+if (!fs.existsSync(viewsPath)) {
+  fs.mkdirSync(viewsPath, { recursive: true });
+  console.log("✅ Created views folder");
+}
+
+// Auto-create login.ejs if missing
+const loginPath = path.join(viewsPath, "login.ejs");
+if (!fs.existsSync(loginPath)) {
+  fs.writeFileSync(loginPath, `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0;
+           display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+    .card { background:#1e293b; padding:2rem; border-radius:12px; width:320px; }
+    h1 { font-size:1.2rem; margin-top:0; }
+    input { width:100%; padding:.6rem; margin:.4rem 0; border-radius:6px;
+            border:1px solid #334155; background:#0f172a; color:#e2e8f0; box-sizing:border-box; }
+    button { width:100%; padding:.6rem; margin-top:.6rem; border:0; border-radius:6px;
+             background:#3b82f6; color:#fff; font-weight:600; cursor:pointer; }
+    .err { color:#f87171; font-size:.85rem; }
+  </style>
+</head>
+<body>
+  <form class="card" method="POST" action="/admin/login">
+    <h1>🔐 Admin Login</h1>
+    <% if (error) { %><p class="err"><%= error %></p><% } %>
+    <input name="username" placeholder="Username" autofocus />
+    <input name="password" type="password" placeholder="Password" />
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>`);
+  console.log("✅ Created login.ejs");
+}
+
+// Auto-create dashboard.ejs if missing
+const dashPath = path.join(viewsPath, "dashboard.ejs");
+if (!fs.existsSync(dashPath)) {
+  fs.writeFileSync(dashPath, `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Admin Panel</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --border:#334155; --txt:#e2e8f0; --accent:#3b82f6; }
+    * { box-sizing:border-box; }
+    body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); margin:0; }
+    header { background:var(--card); padding:1rem 1.5rem; display:flex; justify-content:space-between; align-items:center; }
+    nav button { background:none; border:0; color:var(--txt); padding:.5rem 1rem; cursor:pointer; border-radius:6px; }
+    nav button.active { background:var(--accent); }
+    main { padding:1.5rem; max-width:1100px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.2rem; margin-bottom:1.2rem; }
+    h2 { margin-top:0; font-size:1.05rem; }
+    input, textarea, select { background:var(--bg); border:1px solid var(--border); color:var(--txt);
+           padding:.5rem; border-radius:6px; margin:.2rem 0; }
+    textarea { width:100%; min-height:110px; font-family:monospace; }
+    button.act { background:var(--accent); color:#fff; border:0; padding:.45rem .8rem; border-radius:6px; cursor:pointer; margin:.1rem; }
+    button.danger { background:#ef4444; }
+    button.gray { background:#475569; }
+    table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    th,td { text-align:left; padding:.45rem; border-bottom:1px solid var(--border); }
+    .stat { display:inline-block; background:var(--bg); border:1px solid var(--border); border-radius:8px;
+            padding:.8rem 1.2rem; margin:.3rem; min-width:120px; }
+    .stat b { font-size:1.6rem; display:block; }
+    .badge { padding:.15rem .5rem; border-radius:20px; font-size:.7rem; }
+    .on { background:#16a34a; } .off { background:#64748b; }
+    .revoked { color:#f87171; } .active { color:#4ade80; }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .toggle-wrap { display:flex; align-items:center; gap:.6rem; }
+    .section { display:none; } .section.show { display:block; }
+    small.mono { font-family:monospace; color:#94a3b8; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>🛡️ API Admin Panel</strong>
+    <nav>
+      <button data-tab="overview" class="active">Dashboard</button>
+      <button data-tab="users">Users & Keys</button>
+      <button data-tab="override">Override Mode</button>
+      <button data-tab="logs">Logs</button>
+      <button data-tab="ips">IP Tracking</button>
+    </nav>
+    <form method="POST" action="/admin/logout"><button class="act gray">Logout</button></form>
+  </header>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section id="overview" class="section show">
+      <div class="card"><h2>📊 Analytics</h2><div id="stats"></div></div>
+      <div class="row">
+        <div class="card" style="flex:1"><h2>Top Endpoints</h2><div id="topEndpoints"></div></div>
+        <div class="card" style="flex:1"><h2>Top Users</h2><div id="topUsers"></div></div>
+      </div>
+      <div class="card"><h2>🕒 Recent Activity</h2><div id="recent"></div></div>
+    </section>
+
+    <!-- USERS & KEYS -->
+    <section id="users" class="section">
+      <div class="card">
+        <h2>➕ Add User</h2>
+        <div class="row">
+          <input id="u_name" placeholder="Name" />
+          <input id="u_email" placeholder="Email" />
+          <input id="u_purpose" placeholder="Purpose" />
+          <button class="act" onclick="addUser()">Add</button>
+        </div>
+      </div>
+      <div class="card"><h2>👥 Users</h2><div id="userList"></div></div>
+    </section>
+
+    <!-- OVERRIDE -->
+    <section id="override" class="section">
+      <div class="card">
+        <h2>🎭 Global Result Override / Mock Mode</h2>
+        <div class="toggle-wrap">
+          <label><input type="checkbox" id="ov_on" onchange="saveSettings()" /> Enable Result Override (global)</label>
+          <span id="ov_status" class="badge off">OFF</span>
+        </div>
+        <p><small>When ON, <b>every</b> endpoint returns the custom response below instead of the real API — regardless of the <code>q</code> value. Per-key overrides (set on a key) take priority over this global one.</small></p>
+        <textarea id="ov_body" placeholder='{"message":"This is a demo response"}'></textarea>
+        <div><button class="act" onclick="saveSettings()">Save Override</button></div>
+      </div>
+    </section>
+
+    <!-- LOGS -->
+    <section id="logs" class="section">
+      <div class="card"><h2>📜 Request Logs (last 200)</h2><div id="logList"></div></div>
+    </section>
+
+    <!-- IPs -->
+    <section id="ips" class="section">
+      <div class="card">
+        <h2>🚫 Blocked IPs</h2>
+        <div class="row"><input id="ip_input" placeholder="1.2.3.4" /><button class="act danger" onclick="blockIp()">Block IP</button></div>
+        <div id="blockedList"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/public/app.js"></script>
+</body>
+</html>`);
+  console.log("✅ Created dashboard.ejs");
+}
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -33,7 +190,6 @@ const now = () => Date.now();
 const genKey = () => "sk_" + crypto.randomBytes(20).toString("hex");
 
 function getClientIp(req) {
-  // Behind a proxy you'd trust x-forwarded-for; for local/demo use socket addr
   return (req.headers["x-forwarded-for"] || "").split(",")[0].trim()
       || req.socket.remoteAddress || "unknown";
 }
@@ -82,7 +238,6 @@ app.get("/admin", requireAdmin, (req, res) => res.render("dashboard"));
 // ── Users ──
 app.get("/admin/api/users", requireAdminApi, (req, res) => {
   const users = db.prepare("SELECT * FROM users ORDER BY created DESC").all();
-  // attach keys to each user
   const keysByUser = {};
   for (const k of db.prepare("SELECT * FROM keys").all()) {
     (keysByUser[k.user_id] ||= []).push(k);
@@ -99,7 +254,6 @@ app.post("/admin/api/users", requireAdminApi, (req, res) => {
   res.json({ id: info.lastInsertRowid });
 });
 
-// disable/enable a user
 app.post("/admin/api/users/:id/toggle", requireAdminApi, (req, res) => {
   const u = db.prepare("SELECT * FROM users WHERE id=?").get(req.params.id);
   if (!u) return res.status(404).json({ error: "not found" });
@@ -114,14 +268,12 @@ app.delete("/admin/api/users/:id", requireAdminApi, (req, res) => {
 });
 
 // ── Keys ──
-// Custom key creation: pass `custom` to set your own string, otherwise auto-generate
 app.post("/admin/api/keys", requireAdminApi, (req, res) => {
   const { user_id, custom, rate_limit, rate_window } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id=?").get(user_id);
   if (!user) return res.status(400).json({ error: "invalid user_id" });
 
   const apiKey = (custom && custom.trim()) ? custom.trim() : genKey();
-  // reject duplicates
   if (db.prepare("SELECT 1 FROM keys WHERE api_key=?").get(apiKey))
     return res.status(409).json({ error: "key already exists" });
 
@@ -132,14 +284,12 @@ app.post("/admin/api/keys", requireAdminApi, (req, res) => {
   res.json({ id: info.lastInsertRowid, api_key: apiKey });
 });
 
-// regenerate (replaces the key string, keeps settings)
 app.post("/admin/api/keys/:id/regenerate", requireAdminApi, (req, res) => {
   const newKey = genKey();
   db.prepare("UPDATE keys SET api_key=?, revoked=0 WHERE id=?").run(newKey, req.params.id);
   res.json({ api_key: newKey });
 });
 
-// revoke / unrevoke
 app.post("/admin/api/keys/:id/revoke", requireAdminApi, (req, res) => {
   const k = db.prepare("SELECT * FROM keys WHERE id=?").get(req.params.id);
   if (!k) return res.status(404).json({ error: "not found" });
@@ -147,7 +297,6 @@ app.post("/admin/api/keys/:id/revoke", requireAdminApi, (req, res) => {
   res.json({ ok: true, revoked: k.revoked ? 0 : 1 });
 });
 
-// update rate limit / per-key override
 app.post("/admin/api/keys/:id/update", requireAdminApi, (req, res) => {
   const { rate_limit, rate_window, override_on, override_body } = req.body;
   const k = db.prepare("SELECT * FROM keys WHERE id=?").get(req.params.id);
@@ -168,7 +317,7 @@ app.delete("/admin/api/keys/:id", requireAdminApi, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Global settings (override mode) ──
+// ── Global settings ──
 app.get("/admin/api/settings", requireAdminApi, (req, res) => {
   res.json(db.prepare("SELECT * FROM settings WHERE id=1").get());
 });
@@ -233,11 +382,9 @@ app.get("/admin/api/analytics", requireAdminApi, (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-//  PUBLIC API PROXY  — /num, /ifsc, ... and /all
-//  Flow: validate key → check IP blacklist → rate limit → override? → proxy
+//  PUBLIC API PROXY
 // ═══════════════════════════════════════════════════════════════════════
 
-// simple in-memory sliding window: { keyId: [timestamps] }
 const rateBuckets = new Map();
 
 function checkRateLimit(k) {
@@ -253,21 +400,18 @@ function recordHit(k, hits) {
   rateBuckets.set(k.id, hits);
 }
 
-// Middleware that all API routes run through
 function apiGate(req, res, next) {
   req._start = now();
   const apiKey = req.query.key;
   const ip = getClientIp(req);
   req._ip = ip;
 
-  // IP blacklist
   if (db.prepare("SELECT 1 FROM blocked_ips WHERE ip=?").get(ip)) {
     logRequest({ key_id: null, api_key: apiKey, endpoint: req.path, query: req.query.q,
       ip, status: "blocked", status_code: 403, resp_ms: 0 });
     return res.status(403).json({ error: "IP blocked" });
   }
 
-  // Key validation
   if (!apiKey) return res.status(401).json({ error: "missing key" });
   const k = db.prepare("SELECT * FROM keys WHERE api_key=?").get(apiKey);
   if (!k || k.revoked) {
@@ -278,7 +422,6 @@ function apiGate(req, res, next) {
   const user = db.prepare("SELECT * FROM users WHERE id=?").get(k.user_id);
   if (!user || user.disabled) return res.status(403).json({ error: "user disabled" });
 
-  // Rate limit
   const rl = checkRateLimit(k);
   res.set("X-RateLimit-Limit", k.rate_limit);
   res.set("X-RateLimit-Remaining", rl.remaining);
@@ -297,7 +440,6 @@ function apiGate(req, res, next) {
   next();
 }
 
-// Resolve override: per-key wins over global
 function resolveOverride(k) {
   if (k.override_on && k.override_body) return k.override_body;
   const s = db.prepare("SELECT * FROM settings WHERE id=1").get();
@@ -305,13 +447,11 @@ function resolveOverride(k) {
   return null;
 }
 
-// Try to parse override as JSON, else return as plain text payload
 function sendOverride(res, body) {
   try { return res.json(JSON.parse(body)); }
   catch { return res.json({ message: body }); }
 }
 
-// Call one upstream endpoint
 async function callUpstream(endpoint, q) {
   const url = `${UPSTREAM_BASE}/${endpoint}?key=${encodeURIComponent(UPSTREAM_KEY)}&q=${encodeURIComponent(q || "")}`;
   const r = await fetch(url);
@@ -320,7 +460,7 @@ async function callUpstream(endpoint, q) {
   catch { return { ok: r.ok, status: r.status, data: text }; }
 }
 
-// ── Single endpoints: /num, /ifsc, ... ──
+// ── Single endpoints ──
 for (const ep of ALL_ENDPOINTS) {
   app.get(`/${ep}`, apiGate, async (req, res) => {
     const k = req._key, q = req.query.q;
@@ -344,7 +484,7 @@ for (const ep of ALL_ENDPOINTS) {
   });
 }
 
-// ── Combined endpoint: /all — fans out to all 8 ──
+// ── Combined endpoint: /all ──
 app.get("/all", apiGate, async (req, res) => {
   const k = req._key, q = req.query.q;
   const override = resolveOverride(k);
@@ -353,7 +493,6 @@ app.get("/all", apiGate, async (req, res) => {
       ip: req._ip, status: "success", status_code: 200, resp_ms: now() - req._start });
     return sendOverride(res, override);
   }
-  // fire all upstream calls in parallel
   const results = await Promise.allSettled(ALL_ENDPOINTS.map(ep => callUpstream(ep, q)));
   const aggregated = {};
   ALL_ENDPOINTS.forEach((ep, i) => {
