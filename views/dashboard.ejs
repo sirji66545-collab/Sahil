@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Admin Panel</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --border:#334155; --txt:#e2e8f0; --accent:#3b82f6; }
+    * { box-sizing:border-box; }
+    body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--txt); margin:0; }
+    header { background:var(--card); padding:1rem 1.5rem; display:flex; justify-content:space-between; align-items:center; }
+    nav button { background:none; border:0; color:var(--txt); padding:.5rem 1rem; cursor:pointer; border-radius:6px; }
+    nav button.active { background:var(--accent); }
+    main { padding:1.5rem; max-width:1100px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.2rem; margin-bottom:1.2rem; }
+    h2 { margin-top:0; font-size:1.05rem; }
+    input, textarea, select { background:var(--bg); border:1px solid var(--border); color:var(--txt);
+           padding:.5rem; border-radius:6px; margin:.2rem 0; }
+    textarea { width:100%; min-height:110px; font-family:monospace; }
+    button.act { background:var(--accent); color:#fff; border:0; padding:.45rem .8rem; border-radius:6px; cursor:pointer; margin:.1rem; }
+    button.danger { background:#ef4444; }
+    button.gray { background:#475569; }
+    table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    th,td { text-align:left; padding:.45rem; border-bottom:1px solid var(--border); }
+    .stat { display:inline-block; background:var(--bg); border:1px solid var(--border); border-radius:8px;
+            padding:.8rem 1.2rem; margin:.3rem; min-width:120px; }
+    .stat b { font-size:1.6rem; display:block; }
+    .badge { padding:.15rem .5rem; border-radius:20px; font-size:.7rem; }
+    .on { background:#16a34a; } .off { background:#64748b; }
+    .revoked { color:#f87171; } .active { color:#4ade80; }
+    .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
+    .toggle-wrap { display:flex; align-items:center; gap:.6rem; }
+    .section { display:none; } .section.show { display:block; }
+    small.mono { font-family:monospace; color:#94a3b8; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>🛡️ API Admin Panel</strong>
+    <nav>
+      <button data-tab="overview" class="active">Dashboard</button>
+      <button data-tab="users">Users & Keys</button>
+      <button data-tab="override">Override Mode</button>
+      <button data-tab="logs">Logs</button>
+      <button data-tab="ips">IP Tracking</button>
+    </nav>
+    <form method="POST" action="/admin/logout"><button class="act gray">Logout</button></form>
+  </header>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section id="overview" class="section show">
+      <div class="card"><h2>📊 Analytics</h2><div id="stats"></div></div>
+      <div class="row">
+        <div class="card" style="flex:1"><h2>Top Endpoints</h2><div id="topEndpoints"></div></div>
+        <div class="card" style="flex:1"><h2>Top Users</h2><div id="topUsers"></div></div>
+      </div>
+      <div class="card"><h2>🕒 Recent Activity</h2><div id="recent"></div></div>
+    </section>
+
+    <!-- USERS & KEYS -->
+    <section id="users" class="section">
+      <div class="card">
+        <h2>➕ Add User</h2>
+        <div class="row">
+          <input id="u_name" placeholder="Name" />
+          <input id="u_email" placeholder="Email" />
+          <input id="u_purpose" placeholder="Purpose" />
+          <button class="act" onclick="addUser()">Add</button>
+        </div>
+      </div>
+      <div class="card"><h2>👥 Users</h2><div id="userList"></div></div>
+    </section>
+
+    <!-- OVERRIDE -->
+    <section id="override" class="section">
+      <div class="card">
+        <h2>🎭 Global Result Override / Mock Mode</h2>
+        <div class="toggle-wrap">
+          <label><input type="checkbox" id="ov_on" onchange="saveSettings()" /> Enable Result Override (global)</label>
+          <span id="ov_status" class="badge off">OFF</span>
+        </div>
+        <p><small>When ON, <b>every</b> endpoint returns the custom response below instead of the real API — regardless of the <code>q</code> value. Per-key overrides (set on a key) take priority over this global one.</small></p>
+        <textarea id="ov_body" placeholder='{"message":"This is a demo response"}'></textarea>
+        <div><button class="act" onclick="saveSettings()">Save Override</button></div>
+      </div>
+    </section>
+
+    <!-- LOGS -->
+    <section id="logs" class="section">
+      <div class="card"><h2>📜 Request Logs (last 200)</h2><div id="logList"></div></div>
+    </section>
+
+    <!-- IPs -->
+    <section id="ips" class="section">
+      <div class="card">
+        <h2>🚫 Blocked IPs</h2>
+        <div class="row"><input id="ip_input" placeholder="1.2.3.4" /><button class="act danger" onclick="blockIp()">Block IP</button></div>
+        <div id="blockedList"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/public/app.js"></script>
+</body>
+</html>
