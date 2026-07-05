@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Login</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0;
+           display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+    .card { background:#1e293b; padding:2rem; border-radius:12px; width:320px; }
+    h1 { font-size:1.2rem; margin-top:0; }
+    input { width:100%; padding:.6rem; margin:.4rem 0; border-radius:6px;
+            border:1px solid #334155; background:#0f172a; color:#e2e8f0; box-sizing:border-box; }
+    button { width:100%; padding:.6rem; margin-top:.6rem; border:0; border-radius:6px;
+             background:#3b82f6; color:#fff; font-weight:600; cursor:pointer; }
+    .err { color:#f87171; font-size:.85rem; }
+  </style>
+</head>
+<body>
+  <form class="card" method="POST" action="/admin/login">
+    <h1>🔐 Admin Login</h1>
+    <% if (error) { %><p class="err"><%= error %></p><% } %>
+    <input name="username" placeholder="Username" autofocus />
+    <input name="password" type="password" placeholder="Password" />
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>
